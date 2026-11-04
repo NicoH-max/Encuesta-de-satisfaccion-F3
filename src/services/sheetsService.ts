@@ -8,19 +8,21 @@ export const SHEET_COLUMNS = [
   'Marca temporal',
   'Correo electrónico',
   'Nombre / Identificación',
-  'Rol',
+  'Rol en el Centro Agropecuario',
+  'Frecuencia de uso',
   'Programa de Formación / Ficha',
-  '1. Estado Equipos',
-  '2. Conexión Internet',
-  '3. Software Instalado',
-  '4. Climatización / Temperatura',
-  '5. Iluminación / Pantallas',
-  '6. Mobiliario / Ergonomía',
-  '7. Limpieza y Orden',
-  '8. Ambiente / Nivel de Ruido',
-  '9. Atención y Soporte',
-  '10. Satisfacción Global',
-  'Comentarios y Sugerencias',
+  '1. Estado general Ambiente F3 (1-5)',
+  '2. Limpieza y orden (1-5)',
+  '3. Iluminación y ventilación (1-5)',
+  '4. Mobiliario y comodidad (1-5)',
+  '5. Equipos de cómputo (1-5)',
+  '6. Conectividad y tecnología (1-5)',
+  '7. Seguridad y condiciones de uso (1-5)',
+  '8. Atención y apoyo recibido (1-5)',
+  '9. Disponibilidad del ambiente (1-5)',
+  '10. Satisfacción general (1-5)',
+  'Aspectos a mejorar',
+  'Comentario adicional o sugerencias',
 ];
 
 /**
@@ -56,7 +58,7 @@ export async function ensureTargetSheetExists(
               addSheet: {
                 properties: {
                   title: TARGET_SHEET_NAME,
-                  tabColor: { red: 0.22, green: 0.66, blue: 0.0 },
+                  tabColor: { red: 0.22, green: 0.66, blue: 0.0 }, // SENA green accent
                   gridProperties: { frozenRowCount: 1 },
                 },
               },
@@ -66,11 +68,11 @@ export async function ensureTargetSheetExists(
       });
     }
 
-    // Check header row
+    // Check header row in Encuesta IA
     const headerRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
         TARGET_SHEET_NAME
-      )}!A1:P1`,
+      )}!A1:R1`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const headerData = await headerRes.json().catch(() => ({}));
@@ -79,7 +81,7 @@ export async function ensureTargetSheetExists(
       await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
           TARGET_SHEET_NAME
-        )}!A1:P1?valueInputOption=USER_ENTERED`,
+        )}!A1:R1?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
           headers: {
@@ -93,14 +95,12 @@ export async function ensureTargetSheetExists(
       );
     }
   } catch (e) {
-    console.warn('Silent check on sheet tab:', e);
+    console.warn('Check on sheet tab:', e);
   }
 }
 
 /**
- * Sends a survey response directly to the user's Google Sheet:
- * ID: 1eu4xZrOlAgwpfvvxy4aTxkLTyWI5LSgN7tSsDu7MvXk
- * Page: "Encuesta IA"
+ * Appends survey response to spreadsheet 1eu4xZrOlAgwpfvvxy4aTxkLTyWI5LSgN7tSsDu7MvXk in Encuesta IA
  */
 export async function sendSurveyToSheet(
   formData: SurveyFormData,
@@ -122,46 +122,27 @@ export async function sendSurveyToSheet(
 
   const rowValues = [
     timestamp,
-    userEmail?.trim() || 'No especificado',
+    userEmail?.trim() || formData.email.trim() || 'No especificado',
     formData.esAnonimo ? 'Anónimo' : (formData.nombre.trim() || 'Sin especificar'),
     formData.rol,
+    formData.frecuenciaUso,
     formData.programaFicha.trim() || 'No especificado',
-    formData.q1_equipos,
-    formData.q2_internet,
-    formData.q3_software,
-    formData.q4_clima,
-    formData.q5_iluminacion,
-    formData.q6_mobiliario,
-    formData.q7_limpieza,
-    formData.q8_ruido,
-    formData.q9_soporte,
+    formData.q1_estadoGeneral,
+    formData.q2_limpieza,
+    formData.q3_iluminacionVentilacion,
+    formData.q4_mobiliario,
+    formData.q5_equipos,
+    formData.q6_conectividad,
+    formData.q7_seguridad,
+    formData.q8_atencionApoyo,
+    formData.q9_disponibilidad,
     formData.q10_general,
-    formData.comentarios.trim() || 'Sin observaciones',
+    formData.aspectosMejorar.trim() || 'Ninguno especificado',
+    formData.comentarios.trim() || 'Sin observaciones adicionales',
   ];
 
-  // Save in local storage vault so data is never lost
-  saveLocalRecord({
-    timestamp,
-    nombre: String(rowValues[2]),
-    rol: String(rowValues[3]),
-    programaFicha: String(rowValues[4]),
-    ratings: [
-      formData.q1_equipos,
-      formData.q2_internet,
-      formData.q3_software,
-      formData.q4_clima,
-      formData.q5_iluminacion,
-      formData.q6_mobiliario,
-      formData.q7_limpieza,
-      formData.q8_ruido,
-      formData.q9_soporte,
-      formData.q10_general,
-    ],
-    comentarios: String(rowValues[15]),
-  });
-
-  // If token is present, send directly to Google Sheets API
   let synced = false;
+
   if (token) {
     try {
       await ensureTargetSheetExists(spreadsheetId, token);
@@ -169,7 +150,7 @@ export async function sendSurveyToSheet(
       const appendRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
           TARGET_SHEET_NAME
-        )}!A:P:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        )}!A:R:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
         {
           method: 'POST',
           headers: {
@@ -184,13 +165,36 @@ export async function sendSurveyToSheet(
 
       if (appendRes.ok) {
         synced = true;
-      } else {
-        console.warn('Sheets API returned non-ok status, stored locally');
       }
     } catch (e) {
-      console.warn('Could not reach Google Sheets API directly:', e);
+      console.warn('Sheets API append error, kept in local queue:', e);
     }
   }
+
+  // Save to persistent storage vault
+  saveLocalRecord({
+    timestamp,
+    email: String(rowValues[1]),
+    nombre: String(rowValues[2]),
+    rol: String(rowValues[3]),
+    frecuenciaUso: String(rowValues[4]),
+    programaFicha: String(rowValues[5]),
+    ratings: [
+      formData.q1_estadoGeneral,
+      formData.q2_limpieza,
+      formData.q3_iluminacionVentilacion,
+      formData.q4_mobiliario,
+      formData.q5_equipos,
+      formData.q6_conectividad,
+      formData.q7_seguridad,
+      formData.q8_atencionApoyo,
+      formData.q9_disponibilidad,
+      formData.q10_general,
+    ],
+    aspectosMejorar: String(rowValues[16]),
+    comentarios: String(rowValues[17]),
+    syncedToGoogle: synced,
+  });
 
   return { success: true, syncedToGoogle: synced };
 }
@@ -204,4 +208,65 @@ function saveLocalRecord(record: SurveyResponseRecord) {
   } catch (e) {
     console.error('Error saving local record:', e);
   }
+}
+
+export function getLocalRecords(): SurveyResponseRecord[] {
+  try {
+    const raw = localStorage.getItem('f3_survey_responses_vault') || '[]';
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pushes all pending unsynced responses directly to Google Sheets
+ */
+export async function syncPendingResponses(): Promise<{ syncedCount: number }> {
+  const token = await getAccessToken();
+  if (!token) throw new Error('Se requiere autorizar con Google para sincronizar.');
+
+  const list = getLocalRecords();
+  const unsynced = list.filter((r) => !r.syncedToGoogle);
+
+  if (unsynced.length === 0) return { syncedCount: 0 };
+
+  await ensureTargetSheetExists(DEFAULT_SPREADSHEET_ID, token);
+
+  const rows = unsynced.map((r) => [
+    r.timestamp,
+    r.email,
+    r.nombre,
+    r.rol,
+    r.frecuenciaUso,
+    r.programaFicha,
+    ...r.ratings,
+    r.aspectosMejorar,
+    r.comentarios,
+  ]);
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${DEFAULT_SPREADSHEET_ID}/values/${encodeURIComponent(
+      TARGET_SHEET_NAME
+    )}!A:R:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values: rows }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || 'Error al sincronizar con Google Sheets');
+  }
+
+  // Mark all as synced
+  const updated = list.map((r) => ({ ...r, syncedToGoogle: true }));
+  localStorage.setItem('f3_survey_responses_vault', JSON.stringify(updated));
+
+  return { syncedCount: unsynced.length };
 }

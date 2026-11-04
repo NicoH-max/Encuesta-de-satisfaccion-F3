@@ -1,98 +1,105 @@
 export interface SurveyQuestion {
   id: number;
   title: string;
-  category: 'equipos' | 'conectividad' | 'infraestructura' | 'ambiente' | 'atencion' | 'general';
+  category: 'infraestructura' | 'equipos' | 'conectividad' | 'ambiente' | 'atencion' | 'general';
   description: string;
 }
 
 export interface SurveyFormData {
+  email: string;
   nombre: string;
   esAnonimo: boolean;
   rol: 'Aprendiz' | 'Instructor' | 'Administrativo' | 'Egresado / Visitante';
+  frecuenciaUso: 'Diariamente' | 'Varias veces por semana' | 'Una vez por semana' | 'Ocasionalmente';
   programaFicha: string;
-  // 10 satisfaction questions (1 = Muy malo, 2 = Malo, 3 = Regular, 4 = Bueno, 5 = Excelente)
-  q1_equipos: number;
-  q2_internet: number;
-  q3_software: number;
-  q4_clima: number;
-  q5_iluminacion: number;
-  q6_mobiliario: number;
-  q7_limpieza: number;
-  q8_ruido: number;
-  q9_soporte: number;
+  // 10 satisfaction questions (1 = Muy Malo, 2 = Malo, 3 = Regular, 4 = Bueno, 5 = Excelente)
+  q1_estadoGeneral: number;
+  q2_limpieza: number;
+  q3_iluminacionVentilacion: number;
+  q4_mobiliario: number;
+  q5_equipos: number;
+  q6_conectividad: number;
+  q7_seguridad: number;
+  q8_atencionApoyo: number;
+  q9_disponibilidad: number;
   q10_general: number;
+  aspectosMejorar: string;
   comentarios: string;
 }
 
 export interface SurveyResponseRecord {
   timestamp: string;
+  email: string;
   nombre: string;
   rol: string;
+  frecuenciaUso: string;
   programaFicha: string;
   ratings: number[]; // 10 ratings
+  aspectosMejorar: string;
   comentarios: string;
+  syncedToGoogle?: boolean;
 }
 
 export const SURVEY_QUESTIONS: SurveyQuestion[] = [
   {
     id: 1,
-    title: '1. Estado y funcionamiento de los equipos de cómputo',
-    category: 'equipos',
-    description: 'Rendimiento general de las computadoras, periféricos (teclado, mouse, monitor) y rapidez al iniciar.',
+    title: '1. ¿Qué tan satisfecho(a) está con el estado general del Ambiente F3?',
+    category: 'infraestructura',
+    description: 'Condición física integral de la sala de computación del Centro Agropecuario de Buga.',
   },
   {
     id: 2,
-    title: '2. Velocidad y estabilidad de la conexión a Internet',
-    category: 'conectividad',
-    description: 'Fluidez al navegar, descargar archivos de formación y acceder a plataformas educativas.',
+    title: '2. ¿Qué tan satisfecho(a) está con la limpieza y el orden?',
+    category: 'ambiente',
+    description: 'Aseo de pisos, escritorios, pantallas, canecas y organización de cables.',
   },
   {
     id: 3,
-    title: '3. Disponibilidad y actualización de software necesario',
-    category: 'equipos',
-    description: 'Programas ofimáticos, navegadores y software especializado requeridos para tu formación instalados y funcionales.',
+    title: '3. ¿Qué tan satisfecho(a) está con la iluminación y la ventilación / climatización?',
+    category: 'ambiente',
+    description: 'Luz adecuada sin reflejos molestos y temperatura agradable para la formación.',
   },
   {
     id: 4,
-    title: '4. Climatización, ventilación y temperatura de la sala F3',
+    title: '4. ¿Qué tan satisfecho(a) está con el mobiliario y la comodidad?',
     category: 'infraestructura',
-    description: 'Confort térmico durante las sesiones de clase o prácticas en el ambiente F3.',
+    description: 'Ergonomía de las sillas, espacio de los escritorios y distribución.',
   },
   {
     id: 5,
-    title: '5. Iluminación y visibilidad de las pantallas',
-    category: 'infraestructura',
-    description: 'Nivel de iluminación natural y artificial, sin reflejos molestos en los monitores.',
+    title: '5. ¿Qué tan satisfecho(a) está con la disponibilidad y el estado de los equipos de cómputo?',
+    category: 'equipos',
+    description: 'Funcionamiento del hardware, teclado, mouse, monitor y rapidez al iniciar.',
   },
   {
     id: 6,
-    title: '6. Comodidad del mobiliario y ergonomía',
-    category: 'infraestructura',
-    description: 'Confort de las sillas, altura y amplitud de los escritorios y espacio para trabajar adecuadamente.',
+    title: '6. ¿Qué tan satisfecho(a) está con la conectividad y recursos tecnológicos?',
+    category: 'conectividad',
+    description: 'Velocidad y estabilidad de la conexión a Internet y software requerido.',
   },
   {
     id: 7,
-    title: '7. Limpieza, orden y estado físico del ambiente',
-    category: 'ambiente',
-    description: 'Aseo de las mesas, pisos, organización del cableado y canecas de reciclaje.',
+    title: '7. ¿Qué tan satisfecho(a) está con la seguridad y condiciones de uso?',
+    category: 'infraestructura',
+    description: 'Protección de pertenencias, instalaciones eléctricas seguras y señalización.',
   },
   {
     id: 8,
-    title: '8. Ambiente de trabajo y control del nivel de ruido',
-    category: 'ambiente',
-    description: 'Tranquilidad y condiciones acústicas adecuadas para la concentración y el aprendizaje.',
+    title: '8. ¿Qué tan satisfecho(a) está con la atención y el apoyo recibido para utilizar el ambiente?',
+    category: 'atencion',
+    description: 'Amabilidad, disponibilidad y resolución de dudas por parte del personal o monitor.',
   },
   {
     id: 9,
-    title: '9. Atención, acompañamiento y soporte técnico',
-    category: 'atencion',
-    description: 'Disponibilidad, amabilidad y resolución de problemas por parte del personal encargado o monitores.',
+    title: '9. ¿Qué tan satisfecho(a) está con la disponibilidad del ambiente cuando lo necesita?',
+    category: 'general',
+    description: 'Facilidad de acceso y horarios disponibles para tus clases o prácticas.',
   },
   {
     id: 10,
-    title: '10. Nivel de satisfacción general con la Sala de Computación F3',
+    title: '10. En general, ¿qué tan satisfecho(a) está con el Ambiente F3?',
     category: 'general',
-    description: 'Calificación global de tu experiencia utilizando este ambiente del Centro Agropecuario de Buga.',
+    description: 'Calificación global de tu experiencia en la sala de computación F3.',
   },
 ];
 

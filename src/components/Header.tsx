@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, LogOut, CheckCircle2 } from 'lucide-react';
+import { Building2, LogOut, CheckCircle2, Lock } from 'lucide-react';
 import { ConnectedUser } from '../services/firebaseAuth.ts';
 
 interface HeaderProps {
@@ -7,6 +7,7 @@ interface HeaderProps {
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
   isConnecting: boolean;
+  onOpenAdminModal: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   onConnectGoogle,
   onDisconnectGoogle,
   isConnecting,
+  onOpenAdminModal,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
@@ -29,13 +31,20 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline text-emerald-300 font-semibold">Sala de Cómputo F3</span>
           </div>
 
-          <div className="text-[11px] text-slate-300">
-            Formulario Oficial de Evaluación
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenAdminModal}
+              title="Acceso exclusivo con clave para ver o sincronizar el Excel"
+              className="text-slate-300 hover:text-white px-2 py-0.5 rounded hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px] font-medium cursor-pointer"
+            >
+              <Lock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Ver / Sincronizar Excel</span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Main Header with Branding & Google Account Link */}
+      {/* Main Header with Title & Email Link */}
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Title & Logo */}
         <div className="flex items-center gap-3.5">
@@ -78,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onDisconnectGoogle}
                 title="Cambiar o desvincular correo"
-                className="p-1 text-slate-400 hover:text-red-600 hover:bg-emerald-100/60 rounded-md transition-colors ml-1"
+                className="p-1 text-slate-400 hover:text-red-600 hover:bg-emerald-100/60 rounded-md transition-colors ml-1 cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>

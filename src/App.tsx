@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header.tsx';
 import { SurveyForm } from './components/SurveyForm.tsx';
 import { SuccessModal } from './components/SuccessModal.tsx';
+import { AdminAccessModal } from './components/AdminAccessModal.tsx';
 import { sendSurveyToSheet } from './services/sheetsService.ts';
 import { 
   initAuth, 
@@ -14,21 +15,36 @@ import {
   logout, 
   ConnectedUser, 
   getCurrentUser,
-  setManualEmail 
+  setManualEmail,
+  ensureGisClient 
 } from './services/firebaseAuth.ts';
 import { SurveyFormData } from './types/survey.ts';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Lock } from 'lucide-react';
 
 export default function App() {
   const [connectedUser, setConnectedUser] = useState<ConnectedUser | null>(() => getCurrentUser());
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const [lastSubmittedEmail, setLastSubmittedEmail] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Initialize auth listener
+  // Pre-initialize GIS client so that permissions popup opens with zero delay on click
   useEffect(() => {
+    ensureGisClient(
+      (token, user) => {
+        setConnectedUser(user);
+        setToastMessage({
+          type: 'success',
+          text: `¡Cuenta ${user.email} autorizada con éxito!`,
+        });
+      },
+      (err) => {
+        console.warn('GIS error:', err);
+      }
+    );
+
     const unsubscribe = initAuth(
       (user) => {
         setConnectedUser(user);
@@ -50,15 +66,14 @@ export default function App() {
         setConnectedUser(user);
         setToastMessage({
           type: 'success',
-          text: `Correo ${user.email} vinculado exitosamente.`,
+          text: `Correo ${user.email} vinculado con permisos de Google Sheets.`,
         });
       }
     } catch (err: any) {
-      console.warn(err);
-      // No intrusive error; let user continue
+      console.warn('Error connecting google:', err);
       setToastMessage({
         type: 'info',
-        text: 'Puedes escribir tu correo electrónico directamente en el formulario.',
+        text: 'Puedes ingresar tu correo manualmente en el formulario.',
       });
     } finally {
       setIsConnecting(false);
@@ -80,20 +95,28 @@ export default function App() {
 
   const handleSubmitSurvey = async (formData: SurveyFormData, email: string) => {
     setIsSubmitting(true);
-    setLastSubmittedEmail(email || connectedUser?.email || '');
+    const activeEmail = email || connectedUser?.email || '';
+    setLastSubmittedEmail(activeEmail);
     if (email && !connectedUser) {
       setManualEmail(email);
     }
 
     try {
-      await sendSurveyToSheet(formData, email || connectedUser?.email);
+      const res = await sendSurveyToSheet(formData, activeEmail);
       setShowSuccessModal(true);
-      setToastMessage({
-        type: 'success',
-        text: '¡Respuesta registrada con éxito!',
-      });
+      if (res.syncedToGoogle) {
+        setToastMessage({
+          type: 'success',
+          text: '¡Respuesta enviada y sincronizada directamente en tu hoja de cálculo (Encuesta IA)!',
+        });
+      } else {
+        setToastMessage({
+          type: 'success',
+          text: '¡Respuesta registrada con éxito en el sistema!',
+        });
+      }
     } catch (err: any) {
-      console.error(err);
+      console.error('Error submitting survey:', err);
       setShowSuccessModal(true);
     } finally {
       setIsSubmitting(false);
@@ -132,12 +155,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Institutional Header */}
       <Header
         connectedUser={connectedUser}
         onConnectGoogle={handleConnectGoogle}
         onDisconnectGoogle={handleDisconnectGoogle}
         isConnecting={isConnecting}
+        onOpenAdminModal={() => setShowAdminModal(true)}
       />
 
       {/* Main Survey Area */}
@@ -158,6 +182,14 @@ export default function App() {
         userEmail={lastSubmittedEmail}
       />
 
+      {/* Password Protected Admin Modal (PIN 1305) */}
+      <AdminAccessModal
+        isOpen={showAdminModal}
+        onClose={() => setShowAdminModal(false)}
+        connectedUser={connectedUser}
+        onUserConnected={(u) => setConnectedUser(u)}
+      />
+
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 mt-auto py-5 px-4 text-xs text-slate-500">
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
@@ -165,8 +197,16 @@ export default function App() {
             <span className="font-bold text-[#39A900]">SENA CAB</span>
             <span>• Centro Agropecuario de Buga — Sala de Cómputo F3</span>
           </div>
-          <div className="text-slate-400 text-[11px]">
-            Regional Valle del Cauca • Sistema de Gestión de Calidad
+          <div className="flex items-center gap-3 text-slate-400">
+            <span>Regional Valle del Cauca</span>
+            <span>•</span>
+            <button
+              onClick={() => setShowAdminModal(true)}
+              className="text-slate-400 hover:text-emerald-700 font-medium inline-flex items-center gap-1 cursor-pointer"
+            >
+              <Lock className="w-3 h-3 text-emerald-600" />
+              <span>Ver / Sincronizar Excel</span>
+            </button>
           </div>
         </div>
       </footer>

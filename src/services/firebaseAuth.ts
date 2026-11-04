@@ -15,7 +15,7 @@ export const SCOPES = [
 const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => provider.addScope(scope));
 provider.setCustomParameters({
-  prompt: 'select_account',
+  prompt: 'consent',
 });
 
 export interface ConnectedUser {
@@ -27,14 +27,14 @@ export interface ConnectedUser {
 let cachedAccessToken: string | null = null;
 let currentUserInfo: ConnectedUser | null = null;
 
-// Restore from storage if available
+// Restore from localStorage
 try {
   const savedToken = localStorage.getItem('f3_google_access_token') || sessionStorage.getItem('google_access_token');
   if (savedToken) cachedAccessToken = savedToken;
   const savedUser = localStorage.getItem('f3_google_user_info') || sessionStorage.getItem('google_user_info');
   if (savedUser) currentUserInfo = JSON.parse(savedUser);
 } catch {
-  // Ignore storage errors
+  // Ignore
 }
 
 declare global {
@@ -43,134 +43,120 @@ declare global {
   }
 }
 
-function waitForGoogleIdentity(timeoutMs = 3000): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (window.google?.accounts?.oauth2) {
-      resolve(true);
-      return;
-    }
-    const interval = setInterval(() => {
-      if (window.google?.accounts?.oauth2) {
-        clearInterval(interval);
-        resolve(true);
-      }
-    }, 100);
+// Global reference to GIS TokenClient
+let gisClient: any = null;
 
-    setTimeout(() => {
-      clearInterval(interval);
-      resolve(Boolean(window.google?.accounts?.oauth2));
-    }, timeoutMs);
-  });
+export function ensureGisClient(
+  onTokenReceived: (token: string, user: ConnectedUser) => void,
+  onError?: (err: any) => void
+) {
+  if (typeof window !== 'undefined' && window.google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
+    try {
+      gisClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: firebaseConfig.oAuthClientId,
+        scope: SCOPES.join(' '),
+        prompt: 'consent', // Forces the permissions consent screen to appear
+        callback: async (response: any) => {
+          if (response.error) {
+            console.warn('GIS error:', response);
+            if (onError) onError(response);
+            return;
+          }
+          if (response.access_token) {
+            cachedAccessToken = response.access_token;
+            try {
+              localStorage.setItem('f3_google_access_token', response.access_token);
+              sessionStorage.setItem('google_access_token', response.access_token);
+            } catch {}
+
+            // Fetch user info
+            let userProfile: ConnectedUser = { email: '' };
+            try {
+              const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: { Authorization: `Bearer ${response.access_token}` },
+              });
+              if (res.ok) {
+                const info = await res.json();
+                userProfile = {
+                  email: info.email || '',
+                  name: info.name || info.email,
+                  photoURL: info.picture,
+                };
+              }
+            } catch (e) {
+              console.warn('Error fetching user info:', e);
+            }
+
+            currentUserInfo = userProfile;
+            try {
+              localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
+              sessionStorage.setItem('google_user_info', JSON.stringify(userProfile));
+            } catch {}
+
+            onTokenReceived(response.access_token, userProfile);
+          }
+        },
+        error_callback: (err: any) => {
+          console.warn('GIS error callback:', err);
+          if (onError) onError(err);
+        },
+      });
+    } catch (e) {
+      console.warn('Error creating GIS client:', e);
+    }
+  }
 }
 
 /**
- * Initiates Google OAuth cleanly without throwing fatal errors.
- * Returns null if cancelled.
+ * Initiates the Google OAuth authorization flow with explicit permissions tab
  */
-export const requestGoogleOAuth = async (): Promise<ConnectedUser | null> => {
-  const isGisReady = await waitForGoogleIdentity();
-
-  // Try Google Identity Services (GIS)
-  if (isGisReady && firebaseConfig.oAuthClientId) {
-    try {
-      const token = await new Promise<string>((resolve, reject) => {
-        try {
-          const client = window.google.accounts.oauth2.initTokenClient({
-            client_id: firebaseConfig.oAuthClientId,
-            scope: SCOPES.join(' '),
-            prompt: 'select_account',
-            callback: (response: any) => {
-              if (response.error) {
-                if (response.error === 'popup_closed_by_user' || response.error === 'access_denied') {
-                  resolve('');
-                  return;
-                }
-                reject(new Error(response.error_description || response.error));
-                return;
-              }
-              if (response.access_token) {
-                resolve(response.access_token);
-              } else {
-                resolve('');
-              }
-            },
-            error_callback: () => {
-              resolve('');
-            },
-          });
-          client.requestAccessToken();
-        } catch (e) {
-          reject(e);
+export const requestGoogleOAuth = (): Promise<ConnectedUser | null> => {
+  return new Promise((resolve) => {
+    // 1. If GIS client is available, request access token with prompt consent
+    if (window.google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
+      ensureGisClient(
+        (token, user) => {
+          resolve(user);
+        },
+        () => {
+          // If GIS fails or cancelled, resolve gracefully
+          resolve(null);
         }
-      });
+      );
 
-      if (!token) return null;
-
-      cachedAccessToken = token;
-      try {
-        localStorage.setItem('f3_google_access_token', token);
-        sessionStorage.setItem('google_access_token', token);
-      } catch {}
-
-      // Fetch user profile
-      let userProfile: ConnectedUser = { email: '' };
-      try {
-        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (userInfoRes.ok) {
-          const info = await userInfoRes.json();
-          userProfile = {
-            email: info.email || '',
-            name: info.name || info.email,
-            photoURL: info.picture,
-          };
-        }
-      } catch (e) {
-        console.warn('Could not fetch user profile:', e);
+      if (gisClient) {
+        gisClient.requestAccessToken({ prompt: 'consent' });
+        return;
       }
-
-      currentUserInfo = userProfile;
-      try {
-        localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
-        sessionStorage.setItem('google_user_info', JSON.stringify(userProfile));
-      } catch {}
-
-      return userProfile;
-    } catch (gisError) {
-      console.warn('GIS attempt ended, trying Firebase fallback:', gisError);
-    }
-  }
-
-  // Fallback: Firebase Auth
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-      try {
-        localStorage.setItem('f3_google_access_token', cachedAccessToken);
-        sessionStorage.setItem('google_access_token', cachedAccessToken);
-      } catch {}
     }
 
-    const userProfile: ConnectedUser = {
-      email: result.user.email || '',
-      name: result.user.displayName || result.user.email || 'Usuario',
-      photoURL: result.user.photoURL || undefined,
-    };
-
-    currentUserInfo = userProfile;
-    try {
-      localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
-      sessionStorage.setItem('google_user_info', JSON.stringify(userProfile));
-    } catch {}
-
-    return userProfile;
-  } catch (err: any) {
-    console.warn('Firebase Auth popup ended:', err);
-    return null;
-  }
+    // 2. Fallback to Firebase Auth popup
+    signInWithPopup(auth, provider)
+      .then((result) => {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+          try {
+            localStorage.setItem('f3_google_access_token', cachedAccessToken);
+            sessionStorage.setItem('google_access_token', cachedAccessToken);
+          } catch {}
+        }
+        const userProfile: ConnectedUser = {
+          email: result.user.email || '',
+          name: result.user.displayName || result.user.email || 'Usuario',
+          photoURL: result.user.photoURL || undefined,
+        };
+        currentUserInfo = userProfile;
+        try {
+          localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
+        } catch {}
+        resolve(userProfile);
+      })
+      .catch((err) => {
+        console.warn('Popup closed or error:', err);
+        resolve(null);
+      });
+  });
 };
 
 export const initAuth = (

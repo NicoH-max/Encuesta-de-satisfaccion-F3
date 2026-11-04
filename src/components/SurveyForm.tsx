@@ -14,7 +14,8 @@ import {
   AlertCircle, 
   Check, 
   RefreshCw, 
-  Mail 
+  Mail,
+  Clock
 } from 'lucide-react';
 
 interface SurveyFormProps {
@@ -25,6 +26,19 @@ interface SurveyFormProps {
   isConnecting: boolean;
 }
 
+const QUESTION_KEYS: (keyof SurveyFormData)[] = [
+  'q1_estadoGeneral',
+  'q2_limpieza',
+  'q3_iluminacionVentilacion',
+  'q4_mobiliario',
+  'q5_equipos',
+  'q6_conectividad',
+  'q7_seguridad',
+  'q8_atencionApoyo',
+  'q9_disponibilidad',
+  'q10_general',
+];
+
 export const SurveyForm: React.FC<SurveyFormProps> = ({
   onSubmit,
   isSubmitting,
@@ -34,20 +48,23 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 }) => {
   const [emailInput, setEmailInput] = useState(connectedUser?.email || '');
   const [formData, setFormData] = useState<SurveyFormData>({
+    email: connectedUser?.email || '',
     nombre: connectedUser?.name || '',
     esAnonimo: false,
     rol: 'Aprendiz',
+    frecuenciaUso: 'Varias veces por semana',
     programaFicha: '',
-    q1_equipos: 0,
-    q2_internet: 0,
-    q3_software: 0,
-    q4_clima: 0,
-    q5_iluminacion: 0,
-    q6_mobiliario: 0,
-    q7_limpieza: 0,
-    q8_ruido: 0,
-    q9_soporte: 0,
+    q1_estadoGeneral: 0,
+    q2_limpieza: 0,
+    q3_iluminacionVentilacion: 0,
+    q4_mobiliario: 0,
+    q5_equipos: 0,
+    q6_conectividad: 0,
+    q7_seguridad: 0,
+    q8_atencionApoyo: 0,
+    q9_disponibilidad: 0,
     q10_general: 0,
+    aspectosMejorar: '',
     comentarios: '',
   });
 
@@ -57,25 +74,15 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   useEffect(() => {
     if (connectedUser?.email) {
       setEmailInput(connectedUser.email);
-      if (connectedUser.name && !formData.nombre) {
-        setFormData((prev) => ({ ...prev, nombre: connectedUser.name || '' }));
-      }
+      setFormData((prev) => ({
+        ...prev,
+        email: connectedUser.email,
+        nombre: prev.nombre || connectedUser.name || '',
+      }));
     }
   }, [connectedUser]);
 
-  const answeredCount = [
-    formData.q1_equipos,
-    formData.q2_internet,
-    formData.q3_software,
-    formData.q4_clima,
-    formData.q5_iluminacion,
-    formData.q6_mobiliario,
-    formData.q7_limpieza,
-    formData.q8_ruido,
-    formData.q9_soporte,
-    formData.q10_general,
-  ].filter((v) => v > 0).length;
-
+  const answeredCount = QUESTION_KEYS.filter((k) => (formData[k] as number) > 0).length;
   const progressPercentage = Math.round((answeredCount / 10) * 100);
 
   const handleRatingChange = (key: keyof SurveyFormData, rating: number) => {
@@ -101,42 +108,29 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }
 
     setValidationError(null);
-    await onSubmit(formData, emailInput.trim());
+    await onSubmit({ ...formData, email: emailInput.trim() }, emailInput.trim());
 
     // Reset form after submission
     setFormData({
+      email: connectedUser?.email || '',
       nombre: connectedUser?.name || '',
       esAnonimo: false,
       rol: 'Aprendiz',
+      frecuenciaUso: 'Varias veces por semana',
       programaFicha: '',
-      q1_equipos: 0,
-      q2_internet: 0,
-      q3_software: 0,
-      q4_clima: 0,
-      q5_iluminacion: 0,
-      q6_mobiliario: 0,
-      q7_limpieza: 0,
-      q8_ruido: 0,
-      q9_soporte: 0,
+      q1_estadoGeneral: 0,
+      q2_limpieza: 0,
+      q3_iluminacionVentilacion: 0,
+      q4_mobiliario: 0,
+      q5_equipos: 0,
+      q6_conectividad: 0,
+      q7_seguridad: 0,
+      q8_atencionApoyo: 0,
+      q9_disponibilidad: 0,
       q10_general: 0,
+      aspectosMejorar: '',
       comentarios: '',
     });
-  };
-
-  const getQuestionKey = (index: number): keyof SurveyFormData => {
-    const keys: (keyof SurveyFormData)[] = [
-      'q1_equipos',
-      'q2_internet',
-      'q3_software',
-      'q4_clima',
-      'q5_iluminacion',
-      'q6_mobiliario',
-      'q7_limpieza',
-      'q8_ruido',
-      'q9_soporte',
-      'q10_general',
-    ];
-    return keys[index];
   };
 
   return (
@@ -149,12 +143,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <span>Centro Agropecuario de Buga • Sala F3</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Encuesta de Satisfacción de la Sala de Computación F3
+            Encuesta de Satisfacción sobre el Ambiente F3
           </h2>
           <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
             Tu opinión es fundamental para el mejoramiento continuo de los equipos, el software,
-            el servicio de internet y la comodidad en la <strong>Sala F3</strong>. Por favor califica cada uno
-            de los siguientes 10 aspectos en una escala del 1 (Muy Malo) al 5 (Excelente).
+            el servicio de internet y la comodidad en la <strong>Sala de Computación F3</strong>. Califica cada
+            uno de los 10 aspectos en una escala del 1 (Muy Malo) al 5 (Excelente).
           </p>
         </div>
       </div>
@@ -225,9 +219,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400">
-                Puedes ingresar tu correo manualmente o vincular tu cuenta de Google.
-              </p>
             </div>
 
             {/* Name */}
@@ -265,7 +256,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             {/* Role */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-700">
-                Rol en el Centro Agropecuario
+                Relación con el Centro Agropecuario
               </label>
               <select
                 value={formData.rol}
@@ -284,16 +275,39 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               </select>
             </div>
 
+            {/* Frequency of Use */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                <span>¿Con qué frecuencia utiliza el Ambiente F3?</span>
+              </label>
+              <select
+                value={formData.frecuenciaUso}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    frecuenciaUso: e.target.value as SurveyFormData['frecuenciaUso'],
+                  })
+                }
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all cursor-pointer"
+              >
+                <option value="Diariamente">Diariamente</option>
+                <option value="Varias veces por semana">Varias veces por semana</option>
+                <option value="Una vez por semana">Una vez por semana</option>
+                <option value="Ocasionalmente">Ocasionalmente</option>
+              </select>
+            </div>
+
             {/* Program / Ficha */}
-            <div className="sm:col-span-2 space-y-1.5">
+            <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-700">
-                Programa de Formación / Número de Ficha (opcional)
+                Programa de Formación / Ficha (opcional)
               </label>
               <div className="relative">
                 <GraduationCap className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
-                  placeholder="Ej. Análisis y Desarrollo de Software - Ficha 2712345"
+                  placeholder="Ej. ADSO - Ficha 2712345"
                   value={formData.programaFicha}
                   onChange={(e) => setFormData({ ...formData, programaFicha: e.target.value })}
                   className="w-full pl-9 pr-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all"
@@ -313,7 +327,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </div>
 
           {SURVEY_QUESTIONS.map((q, idx) => {
-            const key = getQuestionKey(idx);
+            const key = QUESTION_KEYS[idx];
             const currentRating = formData[key] as number;
             const isAnswered = currentRating > 0;
 
@@ -375,21 +389,37 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           })}
         </div>
 
-        {/* Section 3: Comments */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-3">
+        {/* Section 3: Aspects to improve & Comments */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
           <h3 className="text-base font-bold text-slate-800">
-            3. Comentarios y Oportunidades de Mejora
+            3. Oportunidades de Mejora y Sugerencias
           </h3>
-          <p className="text-xs text-slate-500">
-            ¿Tienes alguna observación sobre la Sala F3, equipos con fallas, software requerido o felicitación?
-          </p>
-          <textarea
-            rows={3}
-            placeholder="Escribe aquí tus observaciones para el Centro Agropecuario de Buga..."
-            value={formData.comentarios}
-            onChange={(e) => setFormData({ ...formData, comentarios: e.target.value })}
-            className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all resize-none"
-          ></textarea>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-slate-700">
+              ¿Qué aspectos considera que se deben mejorar?
+            </label>
+            <input
+              type="text"
+              placeholder="Ej. Conectividad, velocidad de internet, aire acondicionado, teclados..."
+              value={formData.aspectosMejorar}
+              onChange={(e) => setFormData({ ...formData, aspectosMejorar: e.target.value })}
+              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-slate-700">
+              Comentarios o sugerencias adicionales
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Escribe aquí tus observaciones para el Centro Agropecuario de Buga..."
+              value={formData.comentarios}
+              onChange={(e) => setFormData({ ...formData, comentarios: e.target.value })}
+              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all resize-none"
+            ></textarea>
+          </div>
         </div>
 
         {/* Error notice */}
