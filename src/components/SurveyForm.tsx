@@ -10,31 +10,19 @@ import {
   User as UserIcon, 
   GraduationCap, 
   Sparkles, 
-  FileSpreadsheet, 
   AlertCircle, 
   Check, 
-  ShieldCheck, 
   RefreshCw 
 } from 'lucide-react';
 
 interface SurveyFormProps {
-  onSubmitToSheet: (data: SurveyFormData) => Promise<void>;
+  onSubmit: (data: SurveyFormData) => Promise<void>;
   isSubmitting: boolean;
-  hasSpreadsheet: boolean;
-  spreadsheetTitle: string;
-  onGoToConfig: () => void;
-  isSignedIn: boolean;
-  onSignIn: () => void;
 }
 
 export const SurveyForm: React.FC<SurveyFormProps> = ({
-  onSubmitToSheet,
+  onSubmit,
   isSubmitting,
-  hasSpreadsheet,
-  spreadsheetTitle,
-  onGoToConfig,
-  isSignedIn,
-  onSignIn,
 }) => {
   const [formData, setFormData] = useState<SurveyFormData>({
     nombre: '',
@@ -55,7 +43,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   });
 
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const answeredCount = [
     formData.q1_equipos,
@@ -80,44 +67,24 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     if (validationError) setValidationError(null);
   };
 
-  const validateForm = (): boolean => {
+  const validateAndSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
     if (!formData.esAnonimo && !formData.nombre.trim()) {
-      setValidationError('Por favor ingresa tu nombre o marca la casilla de encuesta anónima.');
-      window.scrollTo({ top: 150, behavior: 'smooth' });
-      return false;
+      setValidationError('Por favor escribe tu nombre completo o marca la opción "Responder de forma anónima".');
+      window.scrollTo({ top: 120, behavior: 'smooth' });
+      return;
     }
 
     if (answeredCount < 10) {
-      setValidationError(`Has respondido ${answeredCount} de 10 preguntas. Por favor califica todos los aspectos para continuar.`);
-      return false;
+      setValidationError(`Has calificado ${answeredCount} de 10 aspectos. Por favor responde todas las preguntas antes de enviar.`);
+      return;
     }
 
     setValidationError(null);
-    return true;
-  };
+    await onSubmit(formData);
 
-  const handlePreSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    if (!isSignedIn) {
-      setValidationError('Debes iniciar sesión con Google para enviar las respuestas directamente a la hoja de cálculo.');
-      return;
-    }
-
-    if (!hasSpreadsheet) {
-      setValidationError('No has vinculado una hoja de cálculo con la pestaña "Encuesta IA". Por favor configúrala primero.');
-      return;
-    }
-
-    // Show confirmation dialog before modifying user Google Sheets data
-    setShowConfirmModal(true);
-  };
-
-  const handleConfirmSubmit = async () => {
-    setShowConfirmModal(false);
-    await onSubmitToSheet(formData);
-    // Reset form
+    // Reset form after successful submission
     setFormData({
       nombre: '',
       esAnonimo: false,
@@ -155,55 +122,32 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Intro hero banner */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs overflow-hidden relative">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-bl-full pointer-events-none -z-0"></div>
-        <div className="relative z-10 space-y-3">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 text-xs font-semibold">
+      {/* Intro banner */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs relative overflow-hidden">
+        <div className="relative z-10 space-y-2.5">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Centro Agropecuario de Buga • Sala F3</span>
           </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            Encuesta de Satisfacción de la Sala de Cómputo F3
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Encuesta de Satisfacción de la Sala de Computación F3
           </h2>
           <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-            Estimado aprendiz, instructor o usuario: tu opinión es fundamental para mejorar la infraestructura
-            tecnológica, el servicio y las condiciones de aprendizaje en la <strong>Sala de Computación F3</strong>.
-            Esta encuesta consta de <strong>10 preguntas breves</strong> y toma menos de 2 minutos.
+            Tu opinión es muy importante para el mejoramiento continuo de los equipos, el software,
+            el servicio de internet y la comodidad en la <strong>Sala F3</strong>. Por favor califica cada uno
+            de los siguientes 10 aspectos en una escala de 1 a 5.
           </p>
-
-          {/* Destination sheet indicator */}
-          <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 text-xs">
-            <div className="flex items-center gap-2 text-slate-600">
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>
-                Destino: Hoja <strong className="text-slate-800">Encuesta IA</strong>
-                {hasSpreadsheet ? (
-                  <span className="ml-1 text-emerald-700 font-medium">({spreadsheetTitle})</span>
-                ) : (
-                  <span className="ml-1 text-amber-600 font-medium">(Sin vincular aún)</span>
-                )}
-              </span>
-            </div>
-            {!hasSpreadsheet && (
-              <button
-                type="button"
-                onClick={onGoToConfig}
-                className="text-xs text-[#39A900] hover:text-[#2d8500] font-semibold underline underline-offset-2"
-              >
-                Vincular hoja de cálculo aquí →
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
       {/* Sticky Progress Bar */}
-      <div className="bg-white/90 backdrop-blur-md rounded-xl border border-slate-200 p-3 shadow-xs sticky top-28 z-30 flex items-center justify-between gap-4">
+      <div className="bg-white/95 backdrop-blur-md rounded-xl border border-slate-200 p-3.5 shadow-xs sticky top-20 z-30 flex items-center justify-between gap-4">
         <div className="flex-1">
-          <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-            <span>Progreso de la encuesta</span>
-            <span className="text-emerald-700 font-bold">{answeredCount} de 10 preguntas ({progressPercentage}%)</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+            <span>Progreso de calificación</span>
+            <span className="text-emerald-700 font-bold">
+              {answeredCount} de 10 aspectos ({progressPercentage}%)
+            </span>
           </div>
           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
             <div
@@ -215,13 +159,13 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         {answeredCount === 10 && (
           <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0">
             <CheckCircle2 className="w-4 h-4 text-[#39A900]" />
-            <span>Completo</span>
+            <span>Listo para enviar</span>
           </span>
         )}
       </div>
 
-      <form onSubmit={handlePreSubmit} className="space-y-6">
-        {/* Section 1: Respondent info */}
+      <form onSubmit={validateAndSubmit} className="space-y-6">
+        {/* Section 1: User info */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
             <UserIcon className="w-5 h-5 text-emerald-600" />
@@ -256,7 +200,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                   className="rounded text-[#39A900] focus:ring-[#39A900] w-4 h-4 cursor-pointer"
                 />
                 <span className="text-xs text-slate-600 select-none">
-                  Prefiero enviar esta encuesta de forma <strong>anónima</strong>
+                  Prefiero responder de forma <strong>anónima</strong>
                 </span>
               </label>
             </div>
@@ -302,13 +246,13 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </div>
         </div>
 
-        {/* Section 2: The 10 Questions */}
+        {/* Section 2: 10 Questions */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-slate-800">
               2. Preguntas de Satisfacción (1 al 5)
             </h3>
-            <span className="text-xs text-slate-500">1: Muy Malo ➔ 5: Excelente</span>
+            <span className="text-xs text-slate-500 font-medium">1: Muy Malo ➔ 5: Excelente</span>
           </div>
 
           {SURVEY_QUESTIONS.map((q, idx) => {
@@ -321,27 +265,25 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                 key={q.id}
                 className={`bg-white rounded-2xl border transition-all p-5 shadow-2xs ${
                   isAnswered
-                    ? 'border-emerald-200 ring-1 ring-emerald-100'
+                    ? 'border-emerald-300 ring-1 ring-emerald-100'
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div className="space-y-1">
-                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                      <span>{q.title}</span>
-                      {isAnswered && (
-                        <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          <Check className="w-3 h-3 mr-0.5" />
-                          Calificado ({currentRating}/5)
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-xs text-slate-500 leading-normal">{q.description}</p>
-                  </div>
+                <div className="space-y-1 mb-3">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center justify-between gap-2">
+                    <span>{q.title}</span>
+                    {isAnswered && (
+                      <span className="inline-flex items-center text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                        <Check className="w-3 h-3 mr-0.5 text-emerald-600" />
+                        {currentRating}/5
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-xs text-slate-500 leading-normal">{q.description}</p>
                 </div>
 
-                {/* Likert Scale 1 to 5 Buttons */}
-                <div className="grid grid-cols-5 gap-2 mt-4">
+                {/* 1 to 5 Buttons */}
+                <div className="grid grid-cols-5 gap-2 mt-3">
                   {[1, 2, 3, 4, 5].map((val) => {
                     const isSelected = currentRating === val;
                     const meta = RATING_LABELS[val];
@@ -376,136 +318,61 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           })}
         </div>
 
-        {/* Section 3: Comments & Suggestions */}
+        {/* Section 3: Comments */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-3">
           <h3 className="text-base font-bold text-slate-800">
             3. Comentarios y Oportunidades de Mejora
           </h3>
           <p className="text-xs text-slate-500">
-            ¿Tienes alguna observación específica sobre la Sala F3, equipos dañados, software faltante o felicitación?
+            ¿Tienes alguna observación sobre la Sala F3, equipos con fallas, software requerido o sugerencia?
           </p>
           <textarea
             rows={3}
-            placeholder="Escribe aquí tus sugerencias para el Centro Agropecuario de Buga..."
+            placeholder="Escribe aquí tus observaciones para el Centro Agropecuario de Buga..."
             value={formData.comentarios}
             onChange={(e) => setFormData({ ...formData, comentarios: e.target.value })}
             className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#39A900] transition-all resize-none"
           ></textarea>
         </div>
 
-        {/* Validation Errors */}
+        {/* Error notice */}
         {validationError && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-800 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold">Verifica los datos antes de continuar:</p>
+              <p className="font-bold">Por favor completa todos los campos:</p>
               <p>{validationError}</p>
             </div>
           </div>
         )}
 
-        {/* Submit Bar */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+        {/* Submit action */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
           <div className="text-xs text-slate-500 text-center sm:text-left">
-            <span className="font-medium text-slate-700 block sm:inline">
-              Sala de Computación F3 • Buga
-            </span>
-            <span className="hidden sm:inline"> — </span>
-            <span>Los datos se registrarán en la hoja &quot;Encuesta IA&quot;.</span>
+            <span className="font-semibold text-slate-700">Centro Agropecuario de Buga</span>
+            <span className="hidden sm:inline"> • </span>
+            <span>Tus respuestas se registrarán en la hoja &quot;Encuesta IA&quot;.</span>
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            {!isSignedIn ? (
-              <button
-                type="button"
-                onClick={onSignIn}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-[#00324D] hover:bg-[#002235] text-white text-xs font-bold px-6 py-3 rounded-xl transition-all shadow-xs"
-              >
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span>Conectar Google para Enviar</span>
-              </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-[#39A900] hover:bg-[#2d8500] disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold px-8 py-3.5 rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer"
+          >
+            {isSubmitting ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Enviando respuestas...</span>
+              </>
             ) : (
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-[#39A900] hover:bg-[#2d8500] disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold px-7 py-3 rounded-xl transition-all shadow-md hover:shadow-lg"
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Guardando en Google Sheets...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    <span>Enviar Respuestas a Google Sheets</span>
-                  </>
-                )}
-              </button>
+              <>
+                <Send className="w-4 h-4" />
+                <span>Enviar Encuesta a la Hoja de Cálculo</span>
+              </>
             )}
-          </div>
+          </button>
         </div>
       </form>
-
-      {/* Explicit User Confirmation Modal before mutating Google Sheets (Mandatory Workspace pattern) */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in duration-200">
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-[#39A900] flex items-center justify-center">
-              <ShieldCheck className="w-7 h-7" />
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="text-lg font-bold text-slate-900">
-                ¿Confirmas el envío de tus respuestas?
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Se agregará una nueva fila con tus 10 calificaciones y comentarios en la pestaña{' '}
-                <strong className="text-slate-900">&quot;Encuesta IA&quot;</strong> de tu hoja de cálculo:
-              </p>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
-              <div className="flex justify-between text-slate-700">
-                <span className="font-semibold">Documento:</span>
-                <span className="truncate max-w-[200px] text-slate-900 font-medium">
-                  {spreadsheetTitle}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-700">
-                <span className="font-semibold">Pestaña:</span>
-                <span className="text-emerald-800 font-bold">Encuesta IA</span>
-              </div>
-              <div className="flex justify-between text-slate-700">
-                <span className="font-semibold">Usuario:</span>
-                <span>{formData.esAnonimo ? 'Anónimo' : formData.nombre}</span>
-              </div>
-              <div className="flex justify-between text-slate-700">
-                <span className="font-semibold">Rol:</span>
-                <span>{formData.rol}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSubmit}
-                className="inline-flex items-center gap-2 bg-[#39A900] hover:bg-[#2d8500] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-colors shadow-xs"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirmar y Guardar</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

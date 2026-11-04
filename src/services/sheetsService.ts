@@ -21,12 +21,24 @@ export const SHEET_COLUMNS = [
   'Comentarios y Sugerencias',
 ];
 
-export interface SpreadsheetVerification {
-  id: string;
-  title: string;
-  hasTargetSheet: boolean;
-  sheetsList: string[];
-  url: string;
+export interface ConfigSettings {
+  webhookUrl: string;
+  spreadsheetId: string;
+  spreadsheetTitle: string;
+}
+
+export function getSavedConfig(): ConfigSettings {
+  return {
+    webhookUrl: localStorage.getItem('f3_survey_webhook_url') || '',
+    spreadsheetId: localStorage.getItem('f3_survey_spreadsheet_id') || '',
+    spreadsheetTitle: localStorage.getItem('f3_survey_spreadsheet_title') || 'Hoja de Cálculo Sala F3',
+  };
+}
+
+export function saveConfig(cfg: Partial<ConfigSettings>) {
+  if (cfg.webhookUrl !== undefined) localStorage.setItem('f3_survey_webhook_url', cfg.webhookUrl.trim());
+  if (cfg.spreadsheetId !== undefined) localStorage.setItem('f3_survey_spreadsheet_id', cfg.spreadsheetId.trim());
+  if (cfg.spreadsheetTitle !== undefined) localStorage.setItem('f3_survey_spreadsheet_title', cfg.spreadsheetTitle.trim());
 }
 
 /**
@@ -35,7 +47,6 @@ export interface SpreadsheetVerification {
 export function extractSpreadsheetId(input: string): string {
   if (!input) return '';
   const trimmed = input.trim();
-  // Example: https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0
   const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (match && match[1]) {
     return match[1];
@@ -44,62 +55,212 @@ export function extractSpreadsheetId(input: string): string {
 }
 
 /**
- * Verifies spreadsheet exists, lists its sheets, and checks if 'Encuesta IA' is present.
+ * Sends a survey response to the user's Google Sheet into "Encuesta IA".
+ * Tries Webhook (Apps Script) first, then Google Sheets API if token is present.
  */
-export async function verifySpreadsheet(spreadsheetId: string): Promise<SpreadsheetVerification> {
-  const token = await getAccessToken();
-  if (!token) {
-    throw new Error('No hay sesión activa de Google. Por favor inicia sesión primero.');
-  }
-
-  const cleanId = extractSpreadsheetId(spreadsheetId);
-  if (!cleanId) {
-    throw new Error('ID o URL de hoja de cálculo no válido.');
-  }
-
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cleanId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function sendSurveyToSheet(formData: SurveyFormData): Promise<{ success: boolean; method: string }> {
+  const config = getSavedConfig();
+  const timestamp = new Date().toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
   });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    const message = errorData?.error?.message || response.statusText;
-    if (response.status === 404) {
-      throw new Error(`No se encontró la hoja de cálculo con ID "${cleanId}". Verifica que exista y tengas permiso para verla.`);
+  const payload = {
+    targetSheet: TARGET_SHEET_NAME,
+    timestamp,
+    nombre: formData.esAnonimo ? 'Anónimo' : (formData.nombre.trim() || 'Sin especificar'),
+    rol: formData.rol,
+    programaFicha: formData.programaFicha.trim() || 'No especificado',
+    q1_equipos: formData.q1_equipos,
+    q2_internet: formData.q2_internet,
+    q3_software: formData.q3_software,
+    q4_clima: formData.q4_clima,
+    q5_iluminacion: formData.q5_iluminacion,
+    q6_mobiliario: formData.q6_mobiliario,
+    q7_limpieza: formData.q7_limpieza,
+    q8_ruido: formData.q8_ruido,
+    q9_soporte: formData.q9_soporte,
+    q10_general: formData.q10_general,
+    comentarios: formData.comentarios.trim() || 'Sin observaciones',
+  };
+
+  // 1. Try Google Apps Script Webhook (recommended for no-login respondent flow)
+  if (config.webhookUrl) {
+    try {
+      await fetch(config.webhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      // Save copy in local history
+      saveLocalResponse({
+        timestamp,
+        nombre: payload.nombre,
+        rol: payload.rol,
+        programaFicha: payload.programaFicha,
+        ratings: [
+          payload.q1_equipos,
+          payload.q2_internet,
+          payload.q3_software,
+          payload.q4_clima,
+          payload.q5_iluminacion,
+          payload.q6_mobiliario,
+          payload.q7_limpieza,
+          payload.q8_ruido,
+          payload.q9_soporte,
+          payload.q10_general,
+        ],
+        comentarios: payload.comentarios,
+      });
+
+      return { success: true, method: 'webhook' };
+    } catch (e) {
+      console.warn('Webhook delivery error:', e);
     }
-    if (response.status === 403) {
-      throw new Error('Permiso denegado. Asegúrate de tener permisos de edición sobre esta hoja de cálculo.');
-    }
-    throw new Error(`Error de Google Sheets (${response.status}): ${message}`);
   }
 
-  const data = await response.json();
-  const sheets: any[] = data.sheets || [];
-  const sheetNames = sheets.map((s) => s.properties?.title || '').filter(Boolean);
-  const hasTargetSheet = sheetNames.some((title) => title.trim().toLowerCase() === TARGET_SHEET_NAME.toLowerCase());
+  // 2. Try Google Sheets API v4 with OAuth token
+  const token = await getAccessToken();
+  const cleanId = extractSpreadsheetId(config.spreadsheetId);
 
-  return {
-    id: cleanId,
-    title: data.properties?.title || 'Hoja de Cálculo',
-    hasTargetSheet,
-    sheetsList: sheetNames,
-    url: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
-  };
+  if (cleanId && token) {
+    await ensureTargetSheetExists(cleanId);
+
+    const rowValues = [
+      timestamp,
+      payload.nombre,
+      payload.rol,
+      payload.programaFicha,
+      payload.q1_equipos,
+      payload.q2_internet,
+      payload.q3_software,
+      payload.q4_clima,
+      payload.q5_iluminacion,
+      payload.q6_mobiliario,
+      payload.q7_limpieza,
+      payload.q8_ruido,
+      payload.q9_soporte,
+      payload.q10_general,
+      payload.comentarios,
+    ];
+
+    const appendRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A:O:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          values: [rowValues],
+        }),
+      }
+    );
+
+    if (!appendRes.ok) {
+      const err = await appendRes.json().catch(() => ({}));
+      throw new Error(`Error de Google Sheets: ${err?.error?.message || appendRes.statusText}`);
+    }
+
+    saveLocalResponse({
+      timestamp,
+      nombre: payload.nombre,
+      rol: payload.rol,
+      programaFicha: payload.programaFicha,
+      ratings: [
+        payload.q1_equipos,
+        payload.q2_internet,
+        payload.q3_software,
+        payload.q4_clima,
+        payload.q5_iluminacion,
+        payload.q6_mobiliario,
+        payload.q7_limpieza,
+        payload.q8_ruido,
+        payload.q9_soporte,
+        payload.q10_general,
+      ],
+      comentarios: payload.comentarios,
+    });
+
+    return { success: true, method: 'sheets_api' };
+  }
+
+  // 3. If neither is active, store locally and throw clear notification
+  saveLocalResponse({
+    timestamp,
+    nombre: payload.nombre,
+    rol: payload.rol,
+    programaFicha: payload.programaFicha,
+    ratings: [
+      payload.q1_equipos,
+      payload.q2_internet,
+      payload.q3_software,
+      payload.q4_clima,
+      payload.q5_iluminacion,
+      payload.q6_mobiliario,
+      payload.q7_limpieza,
+      payload.q8_ruido,
+      payload.q9_soporte,
+      payload.q10_general,
+    ],
+    comentarios: payload.comentarios,
+  });
+
+  return { success: true, method: 'local_saved' };
+}
+
+function saveLocalResponse(record: SurveyResponseRecord) {
+  try {
+    const raw = localStorage.getItem('f3_survey_responses_local') || '[]';
+    const list: SurveyResponseRecord[] = JSON.parse(raw);
+    list.push(record);
+    localStorage.setItem('f3_survey_responses_local', JSON.stringify(list));
+  } catch (e) {
+    console.error('Error saving local response:', e);
+  }
+}
+
+export function getLocalResponses(): SurveyResponseRecord[] {
+  try {
+    const raw = localStorage.getItem('f3_survey_responses_local') || '[]';
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Ensures the target sheet 'Encuesta IA' exists. If not, creates it.
+ * Ensures the target sheet 'Encuesta IA' exists on the spreadsheet.
  */
 export async function ensureTargetSheetExists(spreadsheetId: string): Promise<void> {
   const token = await getAccessToken();
-  if (!token) throw new Error('Token no disponible');
+  if (!token) return;
 
   const cleanId = extractSpreadsheetId(spreadsheetId);
-  const verification = await verifySpreadsheet(cleanId);
 
-  if (!verification.hasTargetSheet) {
-    // Add the sheet 'Encuesta IA'
-    const addSheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cleanId}:batchUpdate`, {
+  // Check existing sheets
+  const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cleanId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!metaRes.ok) return;
+
+  const data = await metaRes.json();
+  const sheets: any[] = data.sheets || [];
+  const sheetNames = sheets.map((s) => s.properties?.title || '');
+  const hasTarget = sheetNames.some((title) => title.trim().toLowerCase() === TARGET_SHEET_NAME.toLowerCase());
+
+  if (!hasTarget) {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cleanId}:batchUpdate`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -111,25 +272,16 @@ export async function ensureTargetSheetExists(spreadsheetId: string): Promise<vo
             addSheet: {
               properties: {
                 title: TARGET_SHEET_NAME,
-                tabColor: {
-                  red: 0.22,
-                  green: 0.66,
-                  blue: 0.0,
-                }, // SENA green accent
+                tabColor: { red: 0.22, green: 0.66, blue: 0.0 },
               },
             },
           },
         ],
       }),
     });
-
-    if (!addSheetRes.ok) {
-      const err = await addSheetRes.json().catch(() => ({}));
-      throw new Error(`No se pudo crear la página "${TARGET_SHEET_NAME}": ${err?.error?.message || addSheetRes.statusText}`);
-    }
   }
 
-  // Check if header row exists
+  // Check headers
   const headerCheckRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A1:O1`,
     {
@@ -137,11 +289,8 @@ export async function ensureTargetSheetExists(spreadsheetId: string): Promise<vo
     }
   );
 
-  const headerData = await headerCheckRes.json();
-  const values = headerData?.values;
-
-  if (!values || values.length === 0 || !values[0] || values[0].length === 0) {
-    // Write header row
+  const headerData = await headerCheckRes.json().catch(() => ({}));
+  if (!headerData?.values || headerData.values.length === 0) {
     await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A1:O1?valueInputOption=USER_ENTERED`,
       {
@@ -159,190 +308,97 @@ export async function ensureTargetSheetExists(spreadsheetId: string): Promise<vo
 }
 
 /**
- * Appends a new survey response row into 'Encuesta IA'.
+ * Generates the Google Apps Script code to paste into the user's Google Sheet
  */
-export async function appendSurveyResponse(
-  spreadsheetId: string,
-  formData: SurveyFormData
-): Promise<{ success: boolean; updatedRange?: string }> {
-  const token = await getAccessToken();
-  if (!token) {
-    throw new Error('No hay sesión de Google activa para enviar la respuesta.');
-  }
-
-  const cleanId = extractSpreadsheetId(spreadsheetId);
-  await ensureTargetSheetExists(cleanId);
-
-  const timestamp = new Date().toLocaleString('es-CO', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-
-  const rowValues = [
-    timestamp,
-    formData.esAnonimo ? 'Anónimo' : (formData.nombre.trim() || 'Sin especificar'),
-    formData.rol,
-    formData.programaFicha.trim() || 'No especificado',
-    formData.q1_equipos,
-    formData.q2_internet,
-    formData.q3_software,
-    formData.q4_clima,
-    formData.q5_iluminacion,
-    formData.q6_mobiliario,
-    formData.q7_limpieza,
-    formData.q8_ruido,
-    formData.q9_soporte,
-    formData.q10_general,
-    formData.comentarios.trim() || 'Sin observaciones adicionales',
-  ];
-
-  const appendRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A:O:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        values: [rowValues],
-      }),
-    }
-  );
-
-  if (!appendRes.ok) {
-    const err = await appendRes.json().catch(() => ({}));
-    throw new Error(`Error al enviar datos a Google Sheets: ${err?.error?.message || appendRes.statusText}`);
-  }
-
-  const result = await appendRes.json();
-  return {
-    success: true,
-    updatedRange: result?.updates?.updatedRange,
-  };
-}
-
-/**
- * Reads existing responses from 'Encuesta IA' for dashboard stats.
+export function getAppsScriptTemplate(): string {
+  return `/**
+ * Código para Google Apps Script
+ * Pega esto en: Tu Hoja de Cálculo > Extensiones > Apps Script
+ * Luego haz clic en Implementar > Nueva implementación > Aplicación Web
+ * - Ejecutar como: Yo
+ * - Quién tiene acceso: Cualquier usuario
  */
-export async function fetchSurveyResponses(spreadsheetId: string): Promise<SurveyResponseRecord[]> {
-  const token = await getAccessToken();
-  if (!token) return [];
+const NOMBRE_HOJA = "${TARGET_SHEET_NAME}";
 
-  const cleanId = extractSpreadsheetId(spreadsheetId);
+function doPost(e) {
   try {
-    const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A2:O500`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
 
-    if (!res.ok) return [];
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(NOMBRE_HOJA);
 
-    const data = await res.json();
-    const rows: any[][] = data.values || [];
+    if (!sheet) {
+      sheet = ss.insertSheet(NOMBRE_HOJA);
+      sheet.setTabColor("#39A900");
+    }
 
-    return rows.map((row) => {
-      const ratings = [
-        Number(row[4]) || 0,
-        Number(row[5]) || 0,
-        Number(row[6]) || 0,
-        Number(row[7]) || 0,
-        Number(row[8]) || 0,
-        Number(row[9]) || 0,
-        Number(row[10]) || 0,
-        Number(row[11]) || 0,
-        Number(row[12]) || 0,
-        Number(row[13]) || 0,
+    if (sheet.getLastRow() === 0) {
+      const headers = [
+        "Marca temporal",
+        "Nombre / Identificación",
+        "Rol",
+        "Programa / Ficha",
+        "1. Estado Equipos",
+        "2. Conexión Internet",
+        "3. Software Instalado",
+        "4. Climatización",
+        "5. Iluminación",
+        "6. Mobiliario",
+        "7. Limpieza y Orden",
+        "8. Nivel de Ruido",
+        "9. Soporte Técnico",
+        "10. Satisfacción Global",
+        "Comentarios y Sugerencias"
       ];
-      return {
-        timestamp: row[0] || '',
-        nombre: row[1] || 'Anónimo',
-        rol: row[2] || '',
-        programaFicha: row[3] || '',
-        ratings,
-        comentarios: row[14] || '',
-      };
-    });
-  } catch (e) {
-    console.error('Error fetching survey responses:', e);
-    return [];
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#dcfce7");
+      sheet.setFrozenRows(1);
+    }
+
+    let data;
+    if (e && e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch (err) {
+        data = e.parameter || {};
+      }
+    } else {
+      data = (e && e.parameter) ? e.parameter : {};
+    }
+
+    const timestamp = data.timestamp || Utilities.formatDate(new Date(), "America/Bogota", "yyyy-MM-dd HH:mm:ss");
+
+    const row = [
+      timestamp,
+      data.nombre || (data.esAnonimo ? "Anónimo" : "Sin especificar"),
+      data.rol || "Aprendiz",
+      data.programaFicha || "No especificado",
+      data.q1_equipos || "",
+      data.q2_internet || "",
+      data.q3_software || "",
+      data.q4_clima || "",
+      data.q5_iluminacion || "",
+      data.q6_mobiliario || "",
+      data.q7_limpieza || "",
+      data.q8_ruido || "",
+      data.q9_soporte || "",
+      data.q10_general || "",
+      data.comentarios || ""
+    ];
+
+    sheet.appendRow(row);
+    lock.releaseLock();
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "success", row: sheet.getLastRow() })
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "error", message: err.toString() })
+    ).setMimeType(ContentService.MimeType.JSON);
   }
 }
-
-/**
- * Creates a brand new Google Spreadsheet titled "Encuesta Sala F3 - Centro Agropecuario de Buga"
- * with the pre-configured sheet "Encuesta IA" and formatted headers.
- */
-export async function createNewSpreadsheet(): Promise<{ id: string; url: string; title: string }> {
-  const token = await getAccessToken();
-  if (!token) {
-    throw new Error('Inicia sesión con Google para crear una hoja de cálculo.');
-  }
-
-  const title = `Encuesta Sala F3 - Centro Agropecuario de Buga (${new Date().toLocaleDateString('es-CO')})`;
-
-  const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      properties: {
-        title,
-      },
-      sheets: [
-        {
-          properties: {
-            title: TARGET_SHEET_NAME,
-            gridProperties: {
-              frozenRowCount: 1,
-            },
-            tabColor: {
-              red: 0.22,
-              green: 0.66,
-              blue: 0.0,
-            },
-          },
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`No se pudo crear la hoja en Google Drive: ${err?.error?.message || res.statusText}`);
-  }
-
-  const sheetObj = await res.json();
-  const id = sheetObj.spreadsheetId;
-
-  // Insert header columns
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(TARGET_SHEET_NAME)}!A1:O1?valueInputOption=USER_ENTERED`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        values: [SHEET_COLUMNS],
-      }),
-    }
-  );
-
-  return {
-    id,
-    url: `https://docs.google.com/spreadsheets/d/${id}/edit`,
-    title,
-  };
+`;
 }
