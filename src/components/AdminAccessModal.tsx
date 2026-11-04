@@ -17,7 +17,7 @@ import {
   getLocalRecords, 
   syncPendingResponses 
 } from '../services/sheetsService.ts';
-import { requestGoogleOAuth, getCurrentUser, ConnectedUser } from '../services/firebaseAuth.ts';
+import { googleSignIn, ConnectedUser } from '../services/firebaseAuth.ts';
 
 interface AdminAccessModalProps {
   isOpen: boolean;
@@ -58,12 +58,12 @@ export const AdminAccessModal: React.FC<AdminAccessModalProps> = ({
     try {
       const res = await syncPendingResponses();
       if (res.syncedCount === 0) {
-        setSyncMessage('Todos los datos ya están sincronizados con la pestaña "Encuesta IA".');
+        setSyncMessage('Todos los datos ya están registrados en la pestaña "Encuesta IA".');
       } else {
-        setSyncMessage(`¡Se han sincronizado ${res.syncedCount} respuestas con tu hoja de cálculo!`);
+        setSyncMessage(`¡Se han sincronizado ${res.syncedCount} respuestas directamente a tu hoja de cálculo!`);
       }
     } catch (err: any) {
-      setSyncMessage(`Error al sincronizar: ${err.message || 'Verifica la autorización de Google'}`);
+      setSyncMessage(`Error: ${err.message || 'Verifica la conexión con Google'}`);
     } finally {
       setIsSyncing(false);
     }
@@ -71,13 +71,16 @@ export const AdminAccessModal: React.FC<AdminAccessModalProps> = ({
 
   const handleAuthorizeGoogle = async () => {
     try {
-      const user = await requestGoogleOAuth();
-      if (user) {
-        onUserConnected(user);
-        setSyncMessage(`Cuenta ${user.email} autorizada con permisos de Google Sheets.`);
+      const res = await googleSignIn();
+      onUserConnected(res.user);
+      setSyncMessage(`Cuenta ${res.user.email} autorizada con permisos de Google Sheets.`);
+      // Run auto sync
+      const syncRes = await syncPendingResponses();
+      if (syncRes.syncedCount > 0) {
+        setSyncMessage(`¡Cuenta autorizada y ${syncRes.syncedCount} respuestas enviadas a la hoja "Encuesta IA"!`);
       }
     } catch (e: any) {
-      setSyncMessage('No se completó la autorización de Google.');
+      setSyncMessage(e?.message || 'No se completó la autorización de Google.');
     }
   };
 
@@ -163,7 +166,7 @@ export const AdminAccessModal: React.FC<AdminAccessModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                  <span className="font-bold text-slate-800">Hoja de cálculo destino:</span>
+                  <span className="font-bold text-slate-800">Hoja de cálculo vinculada:</span>
                 </div>
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                   Pestaña: {TARGET_SHEET_NAME}
@@ -231,7 +234,7 @@ export const AdminAccessModal: React.FC<AdminAccessModalProps> = ({
                   </span>
                 ) : (
                   <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                    ✓ Todo sincronizado
+                    ✓ Todo sincronizado en Sheets
                   </span>
                 )}
               </div>

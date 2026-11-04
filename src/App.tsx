@@ -8,15 +8,14 @@ import { Header } from './components/Header.tsx';
 import { SurveyForm } from './components/SurveyForm.tsx';
 import { SuccessModal } from './components/SuccessModal.tsx';
 import { AdminAccessModal } from './components/AdminAccessModal.tsx';
-import { sendSurveyToSheet } from './services/sheetsService.ts';
+import { sendSurveyToSheet, syncPendingResponses } from './services/sheetsService.ts';
 import { 
   initAuth, 
-  requestGoogleOAuth, 
+  googleSignIn, 
   logout, 
   ConnectedUser, 
   getCurrentUser,
-  setManualEmail,
-  ensureGisClient 
+  setManualEmail 
 } from './services/firebaseAuth.ts';
 import { SurveyFormData } from './types/survey.ts';
 import { AlertCircle, CheckCircle2, Lock } from 'lucide-react';
@@ -30,21 +29,8 @@ export default function App() {
   const [lastSubmittedEmail, setLastSubmittedEmail] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Pre-initialize GIS client so that permissions popup opens with zero delay on click
+  // Initialize Firebase Auth listener on mount
   useEffect(() => {
-    ensureGisClient(
-      (token, user) => {
-        setConnectedUser(user);
-        setToastMessage({
-          type: 'success',
-          text: `¡Cuenta ${user.email} autorizada con éxito!`,
-        });
-      },
-      (err) => {
-        console.warn('GIS error:', err);
-      }
-    );
-
     const unsubscribe = initAuth(
       (user) => {
         setConnectedUser(user);
@@ -61,19 +47,32 @@ export default function App() {
     setIsConnecting(true);
     setToastMessage(null);
     try {
-      const user = await requestGoogleOAuth();
-      if (user) {
-        setConnectedUser(user);
-        setToastMessage({
-          type: 'success',
-          text: `Correo ${user.email} vinculado con permisos de Google Sheets.`,
-        });
+      const res = await googleSignIn();
+      setConnectedUser(res.user);
+      setToastMessage({
+        type: 'success',
+        text: `¡Cuenta ${res.user.email} conectada con permisos de Google Sheets!`,
+      });
+
+      // Automatically sync any previously submitted responses
+      try {
+        const syncRes = await syncPendingResponses();
+        if (syncRes.syncedCount > 0) {
+          setTimeout(() => {
+            setToastMessage({
+              type: 'success',
+              text: `¡Se enviaron automáticamente ${syncRes.syncedCount} respuesta(s) a la hoja "Encuesta IA"!`,
+            });
+          }, 1500);
+        }
+      } catch (syncErr) {
+        console.warn('Sync pending notice:', syncErr);
       }
     } catch (err: any) {
       console.warn('Error connecting google:', err);
       setToastMessage({
-        type: 'info',
-        text: 'Puedes ingresar tu correo manualmente en el formulario.',
+        type: 'error',
+        text: err?.message || 'Error al conectar con Google. Permite ventanas emergentes.',
       });
     } finally {
       setIsConnecting(false);
@@ -86,7 +85,7 @@ export default function App() {
       setConnectedUser(null);
       setToastMessage({
         type: 'info',
-        text: 'Correo desvinculado.',
+        text: 'Cuenta desvinculada.',
       });
     } catch (err: any) {
       console.error(err);
@@ -107,7 +106,7 @@ export default function App() {
       if (res.syncedToGoogle) {
         setToastMessage({
           type: 'success',
-          text: '¡Respuesta enviada y sincronizada directamente en tu hoja de cálculo (Encuesta IA)!',
+          text: '¡Respuesta enviada inmediatamente a tu hoja de cálculo (Encuesta IA)!',
         });
       } else {
         setToastMessage({
