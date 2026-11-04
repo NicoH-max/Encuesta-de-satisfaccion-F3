@@ -6,109 +6,29 @@ export const TARGET_SHEET_NAME = 'Encuesta IA';
 
 export const SHEET_COLUMNS = [
   'Marca temporal',
-  'Correo electrónico',
   'Nombre / Identificación',
-  'Rol en el Centro Agropecuario',
-  'Frecuencia de uso',
+  'Rol',
   'Programa de Formación / Ficha',
-  '1. Estado general Ambiente F3 (1-5)',
-  '2. Limpieza y orden (1-5)',
-  '3. Iluminación y ventilación (1-5)',
-  '4. Mobiliario y comodidad (1-5)',
-  '5. Equipos de cómputo (1-5)',
-  '6. Conectividad y tecnología (1-5)',
-  '7. Seguridad y condiciones de uso (1-5)',
-  '8. Atención y apoyo recibido (1-5)',
-  '9. Disponibilidad del ambiente (1-5)',
-  '10. Satisfacción general (1-5)',
-  'Aspectos a mejorar',
-  'Comentario adicional o sugerencias',
+  '1. Estado Equipos',
+  '2. Conexión Internet',
+  '3. Software Instalado',
+  '4. Climatización / Temperatura',
+  '5. Iluminación / Pantallas',
+  '6. Mobiliario / Ergonomía',
+  '7. Limpieza y Orden',
+  '8. Ambiente / Nivel de Ruido',
+  '9. Atención y Soporte',
+  '10. Satisfacción Global',
+  'Comentarios y Sugerencias',
 ];
 
 /**
- * Ensures 'Encuesta IA' page exists in spreadsheet 1eu4xZrOlAgwpfvvxy4aTxkLTyWI5LSgN7tSsDu7MvXk
- */
-export async function ensureTargetSheetExists(
-  spreadsheetId: string,
-  token: string
-): Promise<void> {
-  try {
-    const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!metaRes.ok) return;
-
-    const metaData = await metaRes.json();
-    const sheets: any[] = metaData.sheets || [];
-    const hasTarget = sheets.some(
-      (s) => (s.properties?.title || '').trim().toLowerCase() === TARGET_SHEET_NAME.toLowerCase()
-    );
-
-    if (!hasTarget) {
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              addSheet: {
-                properties: {
-                  title: TARGET_SHEET_NAME,
-                  tabColor: { red: 0.22, green: 0.66, blue: 0.0 }, // SENA green accent
-                  gridProperties: { frozenRowCount: 1 },
-                },
-              },
-            },
-          ],
-        }),
-      });
-    }
-
-    // Check header row in Encuesta IA
-    const headerRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-        TARGET_SHEET_NAME
-      )}!A1:R1`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const headerData = await headerRes.json().catch(() => ({}));
-
-    if (!headerData?.values || headerData.values.length === 0 || !headerData.values[0]?.length) {
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-          TARGET_SHEET_NAME
-        )}!A1:R1?valueInputOption=USER_ENTERED`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            values: [SHEET_COLUMNS],
-          }),
-        }
-      );
-    }
-  } catch (e) {
-    console.warn('Check on sheet tab:', e);
-  }
-}
-
-/**
- * Appends survey response to spreadsheet 1eu4xZrOlAgwpfvvxy4aTxkLTyWI5LSgN7tSsDu7MvXk in Encuesta IA
+ * Sends a survey response to the server and Google Sheets
  */
 export async function sendSurveyToSheet(
   formData: SurveyFormData,
   userEmail?: string
 ): Promise<{ success: boolean; syncedToGoogle: boolean }> {
-  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
-  const token = await getAccessToken();
-
   const timestamp = new Date().toLocaleString('es-CO', {
     timeZone: 'America/Bogota',
     year: 'numeric',
@@ -120,83 +40,127 @@ export async function sendSurveyToSheet(
     hour12: false,
   });
 
-  const rowValues = [
-    timestamp,
-    userEmail?.trim() || formData.email.trim() || 'No especificado',
-    formData.esAnonimo ? 'Anónimo' : (formData.nombre.trim() || 'Sin especificar'),
-    formData.rol,
-    formData.frecuenciaUso,
-    formData.programaFicha.trim() || 'No especificado',
-    formData.q1_estadoGeneral,
-    formData.q2_limpieza,
-    formData.q3_iluminacionVentilacion,
-    formData.q4_mobiliario,
-    formData.q5_equipos,
-    formData.q6_conectividad,
-    formData.q7_seguridad,
-    formData.q8_atencionApoyo,
-    formData.q9_disponibilidad,
-    formData.q10_general,
-    formData.aspectosMejorar.trim() || 'Ninguno especificado',
-    formData.comentarios.trim() || 'Sin observaciones adicionales',
-  ];
+  const email = userEmail?.trim() || formData.email.trim() || '';
+  const payload = {
+    email,
+    nombre: formData.nombre.trim(),
+    esAnonimo: formData.esAnonimo,
+    rol: formData.rol,
+    programaFicha: formData.programaFicha.trim() || 'No especificado',
+    q1_equipos: formData.q1_equipos,
+    q2_internet: formData.q2_internet,
+    q3_software: formData.q3_software,
+    q4_climatizacion: formData.q4_climatizacion,
+    q5_iluminacion: formData.q5_iluminacion,
+    q6_mobiliario: formData.q6_mobiliario,
+    q7_limpieza: formData.q7_limpieza,
+    q8_ambiente: formData.q8_ambiente,
+    q9_atencion: formData.q9_atencion,
+    q10_satisfaccion: formData.q10_satisfaccion,
+    aspectosMejorar: formData.aspectosMejorar.trim(),
+    comentarios: formData.comentarios.trim(),
+  };
 
-  let synced = false;
+  let syncedToGoogle = false;
 
-  if (token) {
+  // 1. Submit to Server backend (handles server-side Google Sheets delivery for all devices)
+  try {
+    const serverRes = await fetch('/api/survey-response', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (serverRes.ok) {
+      const json = await serverRes.json();
+      if (json.syncedToGoogle) {
+        syncedToGoogle = true;
+      }
+    }
+  } catch (err) {
+    console.warn('Server endpoint error:', err);
+  }
+
+  // 2. Direct client-side Google Sheets API call if user has local token
+  const token = await getAccessToken();
+  if (token && !syncedToGoogle) {
     try {
-      await ensureTargetSheetExists(spreadsheetId, token);
+      const identificacion = payload.esAnonimo
+        ? (payload.email ? `Anónimo (${payload.email})` : 'Anónimo')
+        : (payload.nombre
+            ? (payload.email ? `${payload.nombre} (${payload.email})` : payload.nombre)
+            : (payload.email || 'Sin especificar'));
+
+      const comentariosCombined = [payload.aspectosMejorar, payload.comentarios]
+        .filter(Boolean)
+        .join(' | ') || 'Sin observaciones adicionales';
+
+      const rowValues = [
+        timestamp,
+        identificacion,
+        payload.rol,
+        payload.programaFicha,
+        payload.q1_equipos,
+        payload.q2_internet,
+        payload.q3_software,
+        payload.q4_climatizacion,
+        payload.q5_iluminacion,
+        payload.q6_mobiliario,
+        payload.q7_limpieza,
+        payload.q8_ambiente,
+        payload.q9_atencion,
+        payload.q10_satisfaccion,
+        comentariosCombined,
+      ];
 
       const appendRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        `https://sheets.googleapis.com/v4/spreadsheets/${DEFAULT_SPREADSHEET_ID}/values/${encodeURIComponent(
           TARGET_SHEET_NAME
-        )}!A:R:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+        )}!A:O:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
         {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            values: [rowValues],
-          }),
+          body: JSON.stringify({ values: [rowValues] }),
         }
       );
 
       if (appendRes.ok) {
-        synced = true;
+        syncedToGoogle = true;
       }
     } catch (e) {
-      console.warn('Sheets API append error, kept in local queue:', e);
+      console.warn('Client-side Sheets API direct append:', e);
     }
   }
 
-  // Save to persistent storage vault
+  // 3. Save to localStorage backup vault
   saveLocalRecord({
+    id: Date.now().toString(),
     timestamp,
-    email: String(rowValues[1]),
-    nombre: String(rowValues[2]),
-    rol: String(rowValues[3]),
-    frecuenciaUso: String(rowValues[4]),
-    programaFicha: String(rowValues[5]),
+    email: payload.email || 'No especificado',
+    nombre: payload.esAnonimo ? 'Anónimo' : (payload.nombre || 'Sin especificar'),
+    rol: payload.rol,
+    programaFicha: payload.programaFicha,
     ratings: [
-      formData.q1_estadoGeneral,
-      formData.q2_limpieza,
-      formData.q3_iluminacionVentilacion,
-      formData.q4_mobiliario,
-      formData.q5_equipos,
-      formData.q6_conectividad,
-      formData.q7_seguridad,
-      formData.q8_atencionApoyo,
-      formData.q9_disponibilidad,
-      formData.q10_general,
+      payload.q1_equipos,
+      payload.q2_internet,
+      payload.q3_software,
+      payload.q4_climatizacion,
+      payload.q5_iluminacion,
+      payload.q6_mobiliario,
+      payload.q7_limpieza,
+      payload.q8_ambiente,
+      payload.q9_atencion,
+      payload.q10_satisfaccion,
     ],
-    aspectosMejorar: String(rowValues[16]),
-    comentarios: String(rowValues[17]),
-    syncedToGoogle: synced,
+    aspectosMejorar: payload.aspectosMejorar,
+    comentarios: payload.comentarios,
+    syncedToGoogle,
   });
 
-  return { success: true, syncedToGoogle: synced };
+  return { success: true, syncedToGoogle };
 }
 
 function saveLocalRecord(record: SurveyResponseRecord) {
@@ -220,53 +184,81 @@ export function getLocalRecords(): SurveyResponseRecord[] {
 }
 
 /**
- * Pushes all pending unsynced responses directly to Google Sheets
+ * Propagates token to backend server so any device can write to Google Sheets
+ */
+export async function registerTokenWithServer(token: string, email?: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/save-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, email }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn('Could not register token with server:', e);
+    return false;
+  }
+}
+
+/**
+ * Triggers batch synchronization of all stored responses
  */
 export async function syncPendingResponses(): Promise<{ syncedCount: number }> {
+  // Try server sync first
+  try {
+    const res = await fetch('/api/sync-all', { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      return { syncedCount: data.syncedCount || 0 };
+    }
+  } catch (e) {
+    console.warn('Server sync-all error:', e);
+  }
+
+  // Client-side fallback if browser has token
   const token = await getAccessToken();
-  if (!token) throw new Error('Se requiere autorizar con Google para sincronizar.');
+  if (!token) return { syncedCount: 0 };
 
   const list = getLocalRecords();
   const unsynced = list.filter((r) => !r.syncedToGoogle);
-
   if (unsynced.length === 0) return { syncedCount: 0 };
 
-  await ensureTargetSheetExists(DEFAULT_SPREADSHEET_ID, token);
+  const rows = unsynced.map((r) => {
+    const identificacion = r.email ? `${r.nombre} (${r.email})` : r.nombre;
+    const comentariosCombined = [r.aspectosMejorar, r.comentarios].filter(Boolean).join(' | ') || 'Sin observaciones';
+    return [
+      r.timestamp,
+      identificacion,
+      r.rol,
+      r.programaFicha,
+      ...r.ratings,
+      comentariosCombined,
+    ];
+  });
 
-  const rows = unsynced.map((r) => [
-    r.timestamp,
-    r.email,
-    r.nombre,
-    r.rol,
-    r.frecuenciaUso,
-    r.programaFicha,
-    ...r.ratings,
-    r.aspectosMejorar,
-    r.comentarios,
-  ]);
+  try {
+    const appendRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${DEFAULT_SPREADSHEET_ID}/values/${encodeURIComponent(
+        TARGET_SHEET_NAME
+      )}!A:O:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: rows }),
+      }
+    );
 
-  const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${DEFAULT_SPREADSHEET_ID}/values/${encodeURIComponent(
-      TARGET_SHEET_NAME
-    )}!A:R:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ values: rows }),
+    if (appendRes.ok) {
+      const updated = list.map((r) => ({ ...r, syncedToGoogle: true }));
+      localStorage.setItem('f3_survey_responses_vault', JSON.stringify(updated));
+      return { syncedCount: unsynced.length };
     }
-  );
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || 'Error al sincronizar con Google Sheets');
+  } catch (err) {
+    console.error('Error during client sync:', err);
   }
 
-  // Mark all as synced
-  const updated = list.map((r) => ({ ...r, syncedToGoogle: true }));
-  localStorage.setItem('f3_survey_responses_vault', JSON.stringify(updated));
-
-  return { syncedCount: unsynced.length };
+  return { syncedCount: 0 };
 }

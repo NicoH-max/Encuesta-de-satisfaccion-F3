@@ -8,14 +8,19 @@ import { Header } from './components/Header.tsx';
 import { SurveyForm } from './components/SurveyForm.tsx';
 import { SuccessModal } from './components/SuccessModal.tsx';
 import { AdminAccessModal } from './components/AdminAccessModal.tsx';
-import { sendSurveyToSheet, syncPendingResponses } from './services/sheetsService.ts';
+import { 
+  sendSurveyToSheet, 
+  syncPendingResponses, 
+  registerTokenWithServer 
+} from './services/sheetsService.ts';
 import { 
   initAuth, 
   googleSignIn, 
   logout, 
   ConnectedUser, 
   getCurrentUser,
-  setManualEmail 
+  setManualEmail,
+  getAccessToken 
 } from './services/firebaseAuth.ts';
 import { SurveyFormData } from './types/survey.ts';
 import { AlertCircle, CheckCircle2, Lock } from 'lucide-react';
@@ -29,17 +34,28 @@ export default function App() {
   const [lastSubmittedEmail, setLastSubmittedEmail] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Initialize Firebase Auth listener on mount
+  // Initialize Firebase Auth listener and sync token with server
   useEffect(() => {
     const unsubscribe = initAuth(
-      (user) => {
+      async (user, token) => {
         setConnectedUser(user);
+        if (token) {
+          await registerTokenWithServer(token, user.email);
+        }
       },
       () => {
         const current = getCurrentUser();
         if (current) setConnectedUser(current);
       }
     );
+
+    // Also check if token is already in storage and register with server
+    getAccessToken().then((t) => {
+      if (t) {
+        registerTokenWithServer(t);
+      }
+    });
+
     return () => unsubscribe();
   }, []);
 
@@ -49,9 +65,13 @@ export default function App() {
     try {
       const res = await googleSignIn();
       setConnectedUser(res.user);
+      if (res.accessToken) {
+        await registerTokenWithServer(res.accessToken, res.user.email);
+      }
+
       setToastMessage({
         type: 'success',
-        text: `¡Cuenta ${res.user.email} conectada con permisos de Google Sheets!`,
+        text: `¡Cuenta ${res.user.email} conectada con éxito!`,
       });
 
       // Automatically sync any previously submitted responses
@@ -61,18 +81,19 @@ export default function App() {
           setTimeout(() => {
             setToastMessage({
               type: 'success',
-              text: `¡Se enviaron automáticamente ${syncRes.syncedCount} respuesta(s) a la hoja "Encuesta IA"!`,
+              text: `¡Se enviaron automáticamente ${syncRes.syncedCount} respuesta(s) a la pestaña "Encuesta IA"!`,
             });
-          }, 1500);
+          }, 1200);
         }
       } catch (syncErr) {
         console.warn('Sync pending notice:', syncErr);
       }
     } catch (err: any) {
-      console.warn('Error connecting google:', err);
+      console.warn('Google sign in error:', err);
+      // Friendly, non-blocking notification
       setToastMessage({
-        type: 'error',
-        text: err?.message || 'Error al conectar con Google. Permite ventanas emergentes.',
+        type: 'info',
+        text: 'Puedes ingresar tu correo manualmente en la encuesta. Se registrará igualmente.',
       });
     } finally {
       setIsConnecting(false);
@@ -106,7 +127,7 @@ export default function App() {
       if (res.syncedToGoogle) {
         setToastMessage({
           type: 'success',
-          text: '¡Respuesta enviada inmediatamente a tu hoja de cálculo (Encuesta IA)!',
+          text: '¡Respuesta guardada y enviada a tu hoja de cálculo (Encuesta IA)!',
         });
       } else {
         setToastMessage({
