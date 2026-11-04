@@ -1,15 +1,16 @@
 import React from 'react';
 import { CheckCircle2, Plus, Sparkles } from 'lucide-react';
-import { TARGET_SHEET_NAME } from '../services/sheetsService.ts';
 
 interface SuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
+  userEmail?: string;
 }
 
 export const SuccessModal: React.FC<SuccessModalProps> = ({
   isOpen,
   onClose,
+  userEmail,
 }) => {
   if (!isOpen) return null;
 
@@ -26,12 +27,17 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({
             <span>Encuesta Enviada con Éxito</span>
           </div>
           <h3 className="text-xl font-black text-slate-900">
-            ¡Muchas gracias por tu respuesta!
+            ¡Muchas gracias por tu evaluación!
           </h3>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Tu evaluación sobre la <strong>Sala de Cómputo F3</strong> ha sido registrada exitosamente en la hoja 
-            de cálculo en la pestaña <strong className="text-slate-900">&quot;{TARGET_SHEET_NAME}&quot;</strong> del Centro Agropecuario de Buga.
+            Tu opinión sobre la <strong>Sala de Cómputo F3</strong> ha sido registrada exitosamente.
+            Agradecemos tu tiempo para ayudarnos a mejorar los servicios tecnológicos del Centro Agropecuario de Buga.
           </p>
+          {userEmail && (
+            <p className="text-[11px] text-slate-400 pt-1">
+              Registrado con correo: <span className="font-semibold text-slate-600">{userEmail}</span>
+            </p>
+          )}
         </div>
 
         <div className="pt-2">
@@ -40,7 +46,7 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({
             className="w-full inline-flex items-center justify-center gap-2 bg-[#39A900] hover:bg-[#2d8500] text-white text-xs font-bold py-3.5 px-4 rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Llenar otra encuesta</span>
+            <span>Llenar otra respuesta</span>
           </button>
         </div>
       </div>

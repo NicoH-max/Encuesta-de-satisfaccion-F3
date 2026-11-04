@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -8,6 +8,8 @@ export const auth = getAuth(app);
 export const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
 const provider = new GoogleAuthProvider();
@@ -16,14 +18,20 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-let cachedAccessToken: string | null = null;
-let currentUserInfo: { email?: string; name?: string; photoURL?: string } | null = null;
+export interface ConnectedUser {
+  email: string;
+  name?: string;
+  photoURL?: string;
+}
 
-// Try to restore token from sessionStorage for convenience
+let cachedAccessToken: string | null = null;
+let currentUserInfo: ConnectedUser | null = null;
+
+// Restore from storage if available
 try {
-  const savedToken = sessionStorage.getItem('google_access_token');
+  const savedToken = localStorage.getItem('f3_google_access_token') || sessionStorage.getItem('google_access_token');
   if (savedToken) cachedAccessToken = savedToken;
-  const savedUser = sessionStorage.getItem('google_user_info');
+  const savedUser = localStorage.getItem('f3_google_user_info') || sessionStorage.getItem('google_user_info');
   if (savedUser) currentUserInfo = JSON.parse(savedUser);
 } catch {
   // Ignore storage errors
@@ -35,12 +43,35 @@ declare global {
   }
 }
 
+function waitForGoogleIdentity(timeoutMs = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.google?.accounts?.oauth2) {
+      resolve(true);
+      return;
+    }
+    const interval = setInterval(() => {
+      if (window.google?.accounts?.oauth2) {
+        clearInterval(interval);
+        resolve(true);
+      }
+    }, 100);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      resolve(Boolean(window.google?.accounts?.oauth2));
+    }, timeoutMs);
+  });
+}
+
 /**
- * Initiates Google OAuth using Google Identity Services (GIS) or Firebase Auth
+ * Initiates Google OAuth cleanly without throwing fatal errors.
+ * Returns null if cancelled.
  */
-export const requestGoogleOAuth = async (): Promise<{ token: string; user?: any }> => {
-  // Method A: If Google Identity Services is loaded on window
-  if (window.google?.accounts?.oauth2 && firebaseConfig.oAuthClientId) {
+export const requestGoogleOAuth = async (): Promise<ConnectedUser | null> => {
+  const isGisReady = await waitForGoogleIdentity();
+
+  // Try Google Identity Services (GIS)
+  if (isGisReady && firebaseConfig.oAuthClientId) {
     try {
       const token = await new Promise<string>((resolve, reject) => {
         try {
@@ -50,17 +81,21 @@ export const requestGoogleOAuth = async (): Promise<{ token: string; user?: any 
             prompt: 'select_account',
             callback: (response: any) => {
               if (response.error) {
+                if (response.error === 'popup_closed_by_user' || response.error === 'access_denied') {
+                  resolve('');
+                  return;
+                }
                 reject(new Error(response.error_description || response.error));
                 return;
               }
               if (response.access_token) {
                 resolve(response.access_token);
               } else {
-                reject(new Error('No se recibió token de acceso de Google.'));
+                resolve('');
               }
             },
-            error_callback: (err: any) => {
-              reject(new Error(err?.message || 'Error en Google Identity Services.'));
+            error_callback: () => {
+              resolve('');
             },
           });
           client.requestAccessToken();
@@ -69,80 +104,91 @@ export const requestGoogleOAuth = async (): Promise<{ token: string; user?: any 
         }
       });
 
+      if (!token) return null;
+
       cachedAccessToken = token;
       try {
+        localStorage.setItem('f3_google_access_token', token);
         sessionStorage.setItem('google_access_token', token);
       } catch {}
 
-      // Fetch user profile info using the token
+      // Fetch user profile
+      let userProfile: ConnectedUser = { email: '' };
       try {
         const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (userInfoRes.ok) {
           const info = await userInfoRes.json();
-          currentUserInfo = {
-            email: info.email,
-            name: info.name,
+          userProfile = {
+            email: info.email || '',
+            name: info.name || info.email,
             photoURL: info.picture,
           };
-          try {
-            sessionStorage.setItem('google_user_info', JSON.stringify(currentUserInfo));
-          } catch {}
         }
       } catch (e) {
-        console.warn('Could not fetch user info:', e);
+        console.warn('Could not fetch user profile:', e);
       }
 
-      return { token, user: currentUserInfo };
-    } catch (gisError: any) {
-      console.warn('Google Identity Services failed, attempting Firebase Auth fallback:', gisError);
+      currentUserInfo = userProfile;
+      try {
+        localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
+        sessionStorage.setItem('google_user_info', JSON.stringify(userProfile));
+      } catch {}
+
+      return userProfile;
+    } catch (gisError) {
+      console.warn('GIS attempt ended, trying Firebase fallback:', gisError);
     }
   }
 
-  // Method B: Firebase Auth popup
+  // Fallback: Firebase Auth
   try {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('No se pudo obtener el token de acceso de Google.');
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+      try {
+        localStorage.setItem('f3_google_access_token', cachedAccessToken);
+        sessionStorage.setItem('google_access_token', cachedAccessToken);
+      } catch {}
     }
 
-    cachedAccessToken = credential.accessToken;
-    currentUserInfo = {
-      email: result.user.email || undefined,
-      name: result.user.displayName || undefined,
+    const userProfile: ConnectedUser = {
+      email: result.user.email || '',
+      name: result.user.displayName || result.user.email || 'Usuario',
       photoURL: result.user.photoURL || undefined,
     };
+
+    currentUserInfo = userProfile;
     try {
-      sessionStorage.setItem('google_access_token', cachedAccessToken);
-      sessionStorage.setItem('google_user_info', JSON.stringify(currentUserInfo));
+      localStorage.setItem('f3_google_user_info', JSON.stringify(userProfile));
+      sessionStorage.setItem('google_user_info', JSON.stringify(userProfile));
     } catch {}
 
-    return { token: cachedAccessToken, user: result.user };
+    return userProfile;
   } catch (err: any) {
-    console.error('Firebase Auth Sign-In Error:', err);
-    let msg = err.message || 'Error al iniciar sesión con Google';
-    if (err.code === 'auth/unauthorized-domain') {
-      msg = 'El dominio actual no está en la lista de dominios autorizados de Firebase. Usa el método de Apps Script Webhook para sincronizar directamente.';
-    } else if (err.code === 'auth/popup-blocked') {
-      msg = 'El navegador bloqueó la ventana emergente de Google. Por favor permite ventanas emergentes e intenta de nuevo.';
-    }
-    throw new Error(msg);
+    console.warn('Firebase Auth popup ended:', err);
+    return null;
   }
 };
 
 export const initAuth = (
-  onAuthSuccess?: (user: any, token: string) => void,
+  onAuthSuccess?: (user: ConnectedUser, token: string) => void,
   onAuthFailure?: () => void
 ) => {
   if (cachedAccessToken && currentUserInfo && onAuthSuccess) {
     onAuthSuccess(currentUserInfo, cachedAccessToken);
   }
 
-  return onAuthStateChanged(auth, async (user: User | null) => {
+  return onAuthStateChanged(auth, async (user) => {
     if (user && cachedAccessToken) {
-      if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      const u: ConnectedUser = {
+        email: user.email || '',
+        name: user.displayName || undefined,
+        photoURL: user.photoURL || undefined,
+      };
+      if (onAuthSuccess) onAuthSuccess(u, cachedAccessToken);
     } else if (!cachedAccessToken) {
       if (onAuthFailure) onAuthFailure();
     }
@@ -150,21 +196,26 @@ export const initAuth = (
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  if (cachedAccessToken) return cachedAccessToken;
+  try {
+    return localStorage.getItem('f3_google_access_token') || sessionStorage.getItem('google_access_token');
+  } catch {
+    return null;
+  }
 };
 
-export const setCachedAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
+export const getCurrentUser = (): ConnectedUser | null => currentUserInfo;
+
+export const setManualEmail = (email: string) => {
+  if (!email.trim()) return;
+  currentUserInfo = {
+    email: email.trim(),
+    name: email.split('@')[0],
+  };
   try {
-    if (token) {
-      sessionStorage.setItem('google_access_token', token);
-    } else {
-      sessionStorage.removeItem('google_access_token');
-    }
+    localStorage.setItem('f3_google_user_info', JSON.stringify(currentUserInfo));
   } catch {}
 };
-
-export const getCurrentUser = () => currentUserInfo;
 
 export const logout = async () => {
   try {
@@ -173,6 +224,8 @@ export const logout = async () => {
   cachedAccessToken = null;
   currentUserInfo = null;
   try {
+    localStorage.removeItem('f3_google_access_token');
+    localStorage.removeItem('f3_google_user_info');
     sessionStorage.removeItem('google_access_token');
     sessionStorage.removeItem('google_user_info');
   } catch {}
